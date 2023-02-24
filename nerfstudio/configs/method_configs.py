@@ -48,6 +48,7 @@ from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.field_components.temporal_distortions import TemporalDistortionKind
 from nerfstudio.models.depth_nerfacto import DepthNerfactoModelConfig
 from nerfstudio.models.instant_ngp import InstantNGPModelConfig
+from nerfstudio.models.kplanes import KPlanesModelConfig
 from nerfstudio.models.mipnerf import MipNerfModel
 from nerfstudio.models.nerfacto import NerfactoModelConfig
 from nerfstudio.models.nerfplayer_nerfacto import NerfplayerNerfactoModelConfig
@@ -73,6 +74,7 @@ descriptions = {
     "phototourism": "Uses the Phototourism data.",
     "nerfplayer-nerfacto": "NeRFPlayer with nerfacto backbone.",
     "nerfplayer-ngp": "NeRFPlayer with InstantNGP backbone.",
+    "kplanes": "K-Planes model",
 }
 
 method_configs["nerfacto"] = TrainerConfig(
@@ -382,6 +384,59 @@ method_configs["nerfplayer-ngp"] = TrainerConfig(
         "fields": {
             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
             "scheduler": None,
+        }
+    },
+    viewer=ViewerConfig(num_rays_per_chunk=64000),
+    vis="viewer",
+)
+
+method_configs["kplanes"] = TrainerConfig(
+    method_name="kplanes",
+    steps_per_eval_batch=500,
+    steps_per_save=2000,
+    max_num_iterations=30000,
+    mixed_precision=True,
+    pipeline=VanillaPipelineConfig(
+        datamanager=VanillaDataManagerConfig(
+            dataparser=DNeRFDataParserConfig(),
+            train_num_rays_per_batch=4096,
+            eval_num_rays_per_batch=8192,
+        ),
+        model=KPlanesModelConfig(
+            eval_num_rays_per_chunk=8192,  # TODO: Not sure where this is used
+            time_resolution=50,
+            space_resolution=(256, 256, 256),
+            multiscale_multipliers=(1, 2),
+            spatial_distortion="none",
+            concat_features_across_scales=True,
+            feature_dim=16,
+            is_dynamic=True,
+            num_nerf_samples_per_ray=48,
+            num_proposal_samples_per_ray=(256, 96),
+            distortion_loss_mult=0.0,
+            interlevel_loss_mult=1.0,
+            l1_time_planes_mult=0.0001,
+            l1_time_planes_propnets_mult=0.0001,
+            plane_tv_mult=0.0001,
+            plane_tv_propnets_mult=0.0001,
+            time_smoothness_mult=0.1,
+            time_smoothness_propnets_mult=0.001,
+            num_proposal_iterations=2,
+            proposal_net_args_list=[
+                {"feature_dim": 8, "resolution": (128, 128, 128, 50)},
+                {"feature_dim": 8, "resolution": (256, 256, 256, 50)},
+            ],
+            use_linear_decoder=False,
+        )
+    ),
+    optimizers={
+        "fields": {
+            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+            "scheduler": ExponentialDecaySchedulerConfig(
+                lr_final=1e-5,
+                warmup_steps=500,
+                max_steps=30000,
+            ),
         }
     },
     viewer=ViewerConfig(num_rays_per_chunk=64000),

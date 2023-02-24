@@ -87,7 +87,7 @@ class KPlanesModelConfig(ModelConfig):
     global_translation: Optional[torch.Tensor] = None  # TODO: Unused
     global_scale: Optional[torch.Tensor] = None  # TODO: Unused
 
-    num_proposal_samples_per_ray: Tuple[int] = (256, 96)
+    num_proposal_samples_per_ray: Tuple[int, ...] = (256, 96)
     """Number of samples per ray for each proposal network."""
     num_nerf_samples_per_ray: int = 48
     """Number of samples per ray for the nerf network."""
