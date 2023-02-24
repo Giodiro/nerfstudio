@@ -16,6 +16,7 @@
 Collection of Losses.
 """
 from enum import Enum
+from typing import Sequence
 
 import torch
 from torch import nn
@@ -330,6 +331,56 @@ def monosdf_normal_loss(
     return l1 + cos
 
 
+def plane_tv_loss(grids: Sequence[Sequence[TensorType["batch", "channels", "plane_dims": ...]]]):
+    total = 0.0
+    for single_res_grids in grids:
+        if len(single_res_grids) == 3:
+            spatial_grid_ids = [0, 1, 2]
+        else:
+            spatial_grid_ids = [0, 1, 3]  # These are the spatial grids; the others are spatiotemporal
+        for grid_id in spatial_grid_ids:
+            grid = single_res_grids[grid_id]
+            assert len(grid.shape) == 4, "Plane-TV Loss only implemented for 2D planes."
+            batch_size, c, h, w = grid.shape
+            count_h = batch_size * c * (h - 1) * w
+            count_w = batch_size * c * h * (w - 1)
+            h_tv = torch.square(grid[..., 1:, :] - grid[..., :h-1, :]).sum()
+            w_tv = torch.square(grid[..., :, 1:] - grid[..., :, :w-1]).sum()
+            total += 2 * (h_tv / count_h + w_tv / count_w)  # This is summing over batch and c instead of avg
+    return total
+
+
+def l1_time_planes_loss(grids: Sequence[Sequence[TensorType["batch", "channels", "plane_dims": ...]]]):
+    total = 0.0
+    for single_res_grids in grids:
+        if len(single_res_grids) == 3:
+            continue
+        else:
+            temporal_grid_ids = [2, 4, 5]
+        for grid_id in temporal_grid_ids:
+            total += torch.abs(1 - single_res_grids[grid_id]).mean()
+    return total
+
+
+def time_smoothness_loss(grids: Sequence[Sequence[TensorType["batch", "channels", "plane_dims": ...]]]):
+    total = 0.0
+    for single_res_grids in grids:
+        if len(single_res_grids) == 3:
+            continue
+        else:
+            temporal_grid_ids = [2, 4, 5]
+        for grid_id in temporal_grid_ids:
+            grid = single_res_grids[grid_id]
+            assert len(grid.shape) == 4, "Plane-TV Loss only implemented for 2D planes."
+            batch_size, c, h, w = grid.shape
+            # Convolve with a second derivative filter, in the time dimension which is dimension 2
+            first_difference = grid[..., 1:, :] - grid[..., :h-1, :]  # [batch, c, h-1, w]
+            second_difference = first_difference[..., 1:, :] - first_difference[..., :h-2, :]  # [batch, c, h-2, w]
+            # Take the L2 norm of the result
+            total += torch.square(second_difference).mean()
+    return total
+
+
 class MiDaSMSELoss(nn.Module):
     """
     data term from MiDaS paper
@@ -525,3 +576,4 @@ class ScaleAndShiftInvariantLoss(nn.Module):
         return self.__prediction_ssi
 
     prediction_ssi = property(__get_prediction_ssi)
+
