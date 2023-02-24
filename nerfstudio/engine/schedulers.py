@@ -15,7 +15,7 @@
 # pylint: disable=too-few-public-methods
 
 """Scheduler Classes"""
-
+import math
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional, Type
@@ -107,3 +107,39 @@ class ExponentialDecayScheduler(Scheduler):
 
         scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=func)
         return scheduler
+
+
+@dataclass()
+class CosineDelaySchedulerConfig(SchedulerConfig):
+    """Config for cosine decay scheduler with warmup"""
+
+    _target: Type = field(default_factory=lambda: CosineDelayScheduler)
+    """target class to instantiate"""
+    lr_final: float = None
+    """Final (minimum) learning rate after max_steps."""
+    warmup_steps: int = 0
+    """Number of warmup steps."""
+    max_steps: int = 100000
+    """The maximum number of steps."""
+
+
+class CosineDelayScheduler(Scheduler):
+    """
+    Cosine delay scheduler with linear warmup.
+
+    Starting from `warmup_steps` steps in which the learning rate is ramped up linearly from 0 to
+    the desired initial learning rate, then cosine decay kicks in up to max_steps or until lr_final
+    is reached.
+    Do make sure that the steps **never go above** the max_steps setting. Otherwise the learning
+    rate decay cycle will restart throughout optimization.
+    """
+    config: CosineDelaySchedulerConfig
+
+    def get_scheduler(self, optimizer: Optimizer, lr_init: float) -> lr_scheduler._LRScheduler:
+        def lr_lambda(current_step):
+            if current_step < self.config.warmup_steps:
+                return float(current_step) / float(max(1, self.config.warmup_steps))
+            progress = float(current_step - self.config.warmup_steps) / float(max(1, self.config.max_steps - self.config.warmup_steps))
+            return max(self.config.lr_final, 0.5 * (1.0 + math.cos(math.pi * (progress % 1.0))))
+
+        return lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
