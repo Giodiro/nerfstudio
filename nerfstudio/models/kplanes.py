@@ -61,7 +61,7 @@ class KPlanesModelConfig(ModelConfig):
 
     _target: Type = field(default_factory=lambda: KPlanesModel)
     """target class to instantiate"""
-    background_color: Literal["random", "last_sample", "black", "white"] = "last_sample"
+    background_color: Literal["random", "last_sample", "black", "white"] = "black"
     """Whether to randomize the background color."""
     space_resolution: Sequence[int] = (256, 256, 256)
     """"""
@@ -160,7 +160,7 @@ class KPlanesModel(Model):
         )
 
         self.density_fns = []
-        num_prop_nets = self.config.num_proposal_iterations
+        self.num_prop_nets = self.config.num_proposal_iterations
         # Build the proposal network(s)
         self.proposal_networks = torch.nn.ModuleList()
         if self.config.use_same_proposal_network:
@@ -174,9 +174,9 @@ class KPlanesModel(Model):
                 use_linear_decoder=self.config.use_linear_decoder,
             )
             self.proposal_networks.append(network)
-            self.density_fns.extend([network.density_fn for _ in range(num_prop_nets)])
+            self.density_fns.extend([network.density_fn for _ in range(self.num_prop_nets)])
         else:
-            for i in range(num_prop_nets):
+            for i in range(self.num_prop_nets):
                 prop_net_args = self.config.proposal_net_args_list[min(i, len(self.config.proposal_net_args_list) - 1)]
                 network = KPlanesDensityField(
                     aabb=self.scene_box.aabb,
@@ -201,7 +201,7 @@ class KPlanesModel(Model):
         self.proposal_sampler = ProposalNetworkSampler(
             num_nerf_samples_per_ray=self.config.num_nerf_samples_per_ray,
             num_proposal_samples_per_ray=self.config.num_proposal_samples_per_ray,
-            num_proposal_network_iterations=self.config.num_proposal_iterations,
+            num_proposal_network_iterations=self.num_prop_nets,
             single_jitter=self.config.use_single_jitter,
             update_sched=update_schedule,
             initial_sampler=initial_sampler,
@@ -257,8 +257,8 @@ class KPlanesModel(Model):
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         param_groups = {
-            "proposal_networks": list(self.proposal_networks.parameters()),
-            "fields": list(self.field.parameters())
+            #"proposal_networks": list(self.proposal_networks.parameters()),
+            "fields": list(self.field.parameters()) + list(self.proposal_networks.parameters()),
         }
         return param_groups
 
@@ -287,7 +287,7 @@ class KPlanesModel(Model):
             outputs["weights_list"] = weights_list
             outputs["ray_samples_list"] = ray_samples_list
 
-        for i in range(self.num_proposal_iterations):
+        for i in range(self.num_prop_nets):
             outputs[f"prop_depth_{i}"] = self.renderer_depth(weights=weights_list[i], ray_samples=ray_samples_list[i])
 
         return outputs

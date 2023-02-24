@@ -331,7 +331,7 @@ def monosdf_normal_loss(
     return l1 + cos
 
 
-def plane_tv_loss(grids: Sequence[Sequence[TensorType["batch", "channels", "plane_dims": ...]]]):
+def plane_tv_loss(grids: Sequence[Sequence[TensorType]]):
     total = 0.0
     for single_res_grids in grids:
         if len(single_res_grids) == 3:
@@ -350,7 +350,7 @@ def plane_tv_loss(grids: Sequence[Sequence[TensorType["batch", "channels", "plan
     return total
 
 
-def l1_time_planes_loss(grids: Sequence[Sequence[TensorType["batch", "channels", "plane_dims": ...]]]):
+def l1_time_planes_loss(grids: Sequence[Sequence[TensorType]]):
     total = 0.0
     for single_res_grids in grids:
         if len(single_res_grids) == 3:
@@ -362,7 +362,7 @@ def l1_time_planes_loss(grids: Sequence[Sequence[TensorType["batch", "channels",
     return total
 
 
-def time_smoothness_loss(grids: Sequence[Sequence[TensorType["batch", "channels", "plane_dims": ...]]]):
+def time_smoothness_loss(grids: Sequence[Sequence[TensorType]]):
     total = 0.0
     for single_res_grids in grids:
         if len(single_res_grids) == 3:

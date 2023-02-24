@@ -43,7 +43,7 @@ from nerfstudio.data.dataparsers.phototourism_dataparser import (
     PhototourismDataParserConfig,
 )
 from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConfig
-from nerfstudio.engine.schedulers import ExponentialDecaySchedulerConfig
+from nerfstudio.engine.schedulers import ExponentialDecaySchedulerConfig, CosineDecaySchedulerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.field_components.temporal_distortions import TemporalDistortionKind
 from nerfstudio.models.depth_nerfacto import DepthNerfactoModelConfig
@@ -404,12 +404,12 @@ method_configs["kplanes"] = TrainerConfig(
         ),
         model=KPlanesModelConfig(
             eval_num_rays_per_chunk=8192,  # TODO: Not sure where this is used
-            time_resolution=50,
+            time_resolution=25,
             space_resolution=(256, 256, 256),
             multiscale_multipliers=(1, 2),
             spatial_distortion="none",
             concat_features_across_scales=True,
-            feature_dim=16,
+            feature_dim=32,
             is_dynamic=True,
             num_nerf_samples_per_ray=48,
             num_proposal_samples_per_ray=(256, 96),
@@ -423,8 +423,8 @@ method_configs["kplanes"] = TrainerConfig(
             time_smoothness_propnets_mult=0.001,
             num_proposal_iterations=2,
             proposal_net_args_list=[
-                {"feature_dim": 8, "resolution": (128, 128, 128, 50)},
-                {"feature_dim": 8, "resolution": (256, 256, 256, 50)},
+                {"feature_dim": 8, "resolution": (128, 128, 128, 25)},
+                {"feature_dim": 8, "resolution": (256, 256, 256, 25)},
             ],
             use_linear_decoder=False,
         )
@@ -432,7 +432,7 @@ method_configs["kplanes"] = TrainerConfig(
     optimizers={
         "fields": {
             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-            "scheduler": ExponentialDecaySchedulerConfig(
+            "scheduler": CosineDecaySchedulerConfig(
                 lr_final=1e-5,
                 warmup_steps=500,
                 max_steps=30000,
@@ -440,7 +440,7 @@ method_configs["kplanes"] = TrainerConfig(
         }
     },
     viewer=ViewerConfig(num_rays_per_chunk=64000),
-    vis="viewer",
+    vis="tensorboard",
 )
 
 external_methods, external_descriptions = discover_methods()

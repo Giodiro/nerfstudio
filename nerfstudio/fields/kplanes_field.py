@@ -116,14 +116,13 @@ class KPlanesField(Field):
         self.spatial_distortion = spatial_distortion
         self.concat_features_across_scales = concat_features_across_scales
         self.is_dynamic = is_dynamic
+        self.use_linear_decoder = use_linear_decoder
+        self.multiscale_multipliers = multiscale_multipliers
         self.feature_dim = (
             feature_dim * len(self.multiscale_multipliers)
             if self.concat_features_across_scales
             else feature_dim
         )
-        self.use_linear_decoder = use_linear_decoder
-        self.linear_decoder_layers = linear_decoder_layers
-        self.multiscale_multipliers = multiscale_multipliers
 
         # 1. Initialize planes
         self.grids = torch.nn.ModuleList()
@@ -147,7 +146,7 @@ class KPlanesField(Field):
             self.appearance_embedding = Embedding(num_images, appearance_embedding_dim)
 
         # 3. Init decoder params
-        self.direction_encoding = tcnn.Encoding(
+        self.direction_encoder = tcnn.Encoding(
             n_input_dims=3,
             encoding_config={
                 "otype": "SphericalHarmonics",
@@ -220,10 +219,12 @@ class KPlanesField(Field):
             positions = (positions + 2.0) / 4.0  # from [-2, 2] to [-1, 1]
         else:
             positions = SceneBox.get_normalized_positions(positions, self.aabb)
-        n_rays, n_samples = positions.shape[:2]  # TODO: Make sure shapes are fine
+        n_rays, n_samples = positions.shape[:2]
 
         timestamps = ray_samples.times
         if timestamps is not None:
+            # Normalize timestamps from [0, 1] to [-1, 1]
+            timestamps = (timestamps * 2) - 1
             positions = torch.cat((positions, timestamps), dim=-1)  # [n_rays, n_samples, 4]
 
         positions = positions.reshape(-1, positions.shape[-1])
@@ -248,15 +249,14 @@ class KPlanesField(Field):
 
     def get_outputs(self, ray_samples: RaySamples, density_embedding: Optional[TensorType] = None):
         assert density_embedding is not None
-        n_rays, n_samples = ray_samples.frustums.shape  # TODO: Verify
-        print(f"{n_rays=} {n_samples=}")
+        n_rays, n_samples = ray_samples.frustums.shape
         directions = ray_samples.frustums.directions
         directions = directions.reshape(-1, 3)
 
         if self.use_linear_decoder:
             color_features = [density_embedding]
         else:
-            directions = get_normalized_directions(ray_samples.frustums.directions)
+            directions = get_normalized_directions(directions)
             encoded_directions = self.direction_encoder(directions)
             color_features = [encoded_directions, density_embedding.view(-1, self.geo_feat_dim)]
 
@@ -285,7 +285,7 @@ class KPlanesField(Field):
 
         color_features = torch.cat(color_features, dim=-1)
 
-        if self.linear_decoder:
+        if self.use_linear_decoder:
             basis_values = self.color_basis(directions)  # [batch, color_feature_len * 3]
             basis_values = basis_values.view(color_features.shape[0], 3, -1)  # [batch, 3, color_feature_len]
             rgb = torch.sum(color_features[:, None, :] * basis_values, dim=-1)  # [batch, 3]
@@ -308,13 +308,14 @@ class KPlanesField(Field):
 
         return {FieldHeadNames.DENSITY: density, FieldHeadNames.RGB: rgb}
 
+"""
     def get_params(self):
         field_params = {k: v for k, v in self.grids.named_parameters(prefix="grids")}
         nn_params = [
             self.sigma_net.named_parameters(prefix="sigma_net"),
             self.direction_encoder.named_parameters(prefix="direction_encoder"),
         ]
-        if self.linear_decoder:
+        if self.use_linear_decoder:
             nn_params.append(self.color_basis.named_parameters(prefix="color_basis"))
         else:
             nn_params.append(self.color_net.named_parameters(prefix="color_net"))
@@ -327,3 +328,4 @@ class KPlanesField(Field):
             "field": list(field_params.values()),
             "other": list(other_params.values()),
         }
+"""

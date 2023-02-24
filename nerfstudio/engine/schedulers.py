@@ -110,10 +110,10 @@ class ExponentialDecayScheduler(Scheduler):
 
 
 @dataclass()
-class CosineDelaySchedulerConfig(SchedulerConfig):
+class CosineDecaySchedulerConfig(SchedulerConfig):
     """Config for cosine decay scheduler with warmup"""
 
-    _target: Type = field(default_factory=lambda: CosineDelayScheduler)
+    _target: Type = field(default_factory=lambda: CosineDecayScheduler)
     """target class to instantiate"""
     lr_final: float = None
     """Final (minimum) learning rate after max_steps."""
@@ -123,7 +123,7 @@ class CosineDelaySchedulerConfig(SchedulerConfig):
     """The maximum number of steps."""
 
 
-class CosineDelayScheduler(Scheduler):
+class CosineDecayScheduler(Scheduler):
     """
     Cosine delay scheduler with linear warmup.
 
@@ -133,7 +133,7 @@ class CosineDelayScheduler(Scheduler):
     Do make sure that the steps **never go above** the max_steps setting. Otherwise the learning
     rate decay cycle will restart throughout optimization.
     """
-    config: CosineDelaySchedulerConfig
+    config: CosineDecaySchedulerConfig
 
     def get_scheduler(self, optimizer: Optimizer, lr_init: float) -> lr_scheduler._LRScheduler:
         def lr_lambda(current_step):

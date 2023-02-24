@@ -29,7 +29,7 @@ from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.field_components.activations import trunc_exp
 from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.base_field import Field
-from nerfstudio.fields.kplanes_field import interpolate_kplanes
+from nerfstudio.fields.kplanes_field import interpolate_kplanes, init_grid_param
 
 try:
     import tinycudann as tcnn
@@ -84,10 +84,13 @@ class KPlanesDensityField(Field):
 
         timestamps = ray_samples.times
         if timestamps is not None:
+            # Normalize timestamps from [0, 1] to [-1, 1]
+            timestamps = (timestamps * 2) - 1
             pts = torch.cat((positions, timestamps), dim=-1)  # [n_rays, n_samples, 4]
 
         positions = positions.reshape(-1, positions.shape[-1])
 
+        # Here concat_features is False since there is a single scale
         features = interpolate_kplanes(
             positions, ms_grids=[self.grids], concat_features=False
         )
@@ -99,6 +102,7 @@ class KPlanesDensityField(Field):
     def get_outputs(self, ray_samples: RaySamples, density_embedding: Optional[TensorType] = None):
         return {}
 
+"""
     def get_params(self):
         field_params = {k: v for k, v in self.grids.named_parameters(prefix="grids")}
         nn_params = {k: v for k, v in self.sigma_net.named_parameters(prefix="sigma_net")}
@@ -110,7 +114,7 @@ class KPlanesDensityField(Field):
             "field": list(field_params.values()),
             "other": list(other_params.values()),
         }
-
+"""
 
 class HashMLPDensityField(Field):
     """A lightweight density field module.
