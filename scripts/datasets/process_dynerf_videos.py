@@ -1,0 +1,114 @@
+#!/usr/bin/env python
+"""Processes a video sequence for use ."""
+import os
+import re
+from collections import Iterator
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated, Union
+
+import numpy as np
+import tyro
+from rich.console import Console
+
+from nerfstudio.process_data import process_data_utils
+from nerfstudio.utils import install_checks
+from nerfstudio.utils.io import write_to_json
+
+CONSOLE = Console(width=120)
+
+
+@dataclass
+class ProcessVideo:
+    data: Path
+    """Path the data, either a video file or a directory of images."""
+    output_dir: Path
+    """Path to the output directory."""
+    num_frames_target: int = 300
+    """Target number of frames to use for the dataset, results may not be exact."""
+    num_downscales: int = 3
+    """Number of times to downscale the images. Downscales by 2 each time. For example a value of 3
+        will downscale the images by 2x, 4x, and 8x."""
+    gpu: bool = True
+    """If True, use GPU."""
+    verbose: bool = False
+    """If True, print extra logging."""
+
+    def main(self) -> None:
+        """Process video into a nerfstudio dataset."""
+        install_checks.check_ffmpeg_installed()
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        image_dir = self.output_dir / "images"
+
+        poses_bounds = np.load(str(self.data / 'poses_bounds.npy'))  # (n_cameras, 17)
+        num_cameras = poses_bounds.shape[0]
+
+        videopaths = np.array(self.data.glob("*.mp4"))
+        videopaths.sort()
+        assert len(videopaths) == num_cameras, \
+            'Mismatch between number of cameras and number of poses!'
+
+        frames = []
+        for cam_id, videopath in enumerate(videopaths):
+            camera_image_dir = image_dir / f"camera_{cam_id}"
+            camera_image_dir.mkdir(parents=True, exist_ok=True)
+            summary_log, num_extracted_frames = process_data_utils.convert_video_to_images(
+                videopath, image_dir=camera_image_dir, num_frames_target=self.num_frames_target,
+                verbose=self.verbose
+            )
+            summary_log.append(
+                process_data_utils.downscale_images(
+                    camera_image_dir, self.num_downscales, verbose=self.verbose)
+            )
+
+            # Convert poses_bounds.npy to transforms.json
+            cam_pose = poses_bounds[cam_id, :15].reshape(3, 5)
+            near_far = poses_bounds[cam_id, -2:]  # TODO: ignored
+            H, W, focal = cam_pose[:, -1]
+            cam_pose = cam_pose[:, :-1]  # 3, 4
+            # Original poses has rotation in form "down right back", change to "right up back"
+            # See https://github.com/bmild/nerf/issues/34
+            cam_pose = np.concatenate([cam_pose[:, 1:2], -cam_pose[:, :1], cam_pose[:, 2:4]], -1)
+            files: Iterator[os.DirEntry] = os.scandir(camera_image_dir)
+            num_frames_in_cam = 0
+            for f in files:  # Extracted images have file-name like frame_%05d.png
+                if not f.is_file() or not f.name.endswith("png"):
+                    continue
+                frames.append({
+                    "file_path": f.name,
+                    "transform_matrix": cam_pose.tolist(),
+                    "fl_x": focal, "fl_y": focal,
+                    "cx": W / 2, "cy": H / 2,
+                    "w": W, "h": H,
+                    "camera_idx": cam_id,
+                    "time": int(re.match(r"frame_([0-9]+)\.png", f.name).group(1))
+                })
+                num_frames_in_cam += 1
+            CONSOLE.log(f"[green]Extracted {num_frames_in_cam} from camera {cam_id}")
+            for summary in summary_log:
+                CONSOLE.print(summary, justify="center")
+            CONSOLE.rule()
+
+        write_to_json(self.output_dir / "transforms.json", {"frames": frames})
+        CONSOLE.rule("[bold green]:tada: :tada: :tada: All DONE :tada: :tada: :tada:")
+
+
+Commands = Union[
+    Annotated[ProcessVideo, tyro.conf.subcommand(name="video")],
+]
+
+
+def entrypoint():
+    """Entrypoint for use with pyproject scripts."""
+    tyro.extras.set_accent_color("bright_yellow")
+    tyro.cli(Commands).main()
+
+
+if __name__ == "__main__":
+    entrypoint()
+
+
+# For sphinx docs
+def get_parser_fn():
+    tyro.extras.get_parser(Commands)
