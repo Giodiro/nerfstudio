@@ -100,14 +100,14 @@ def get_num_frames_in_video(video: Path) -> int:
 
 
 def convert_video_to_images(
-    video_path: Path, image_dir: Path, num_frames_target: int, verbose: bool = False
+    video_path: Path, image_dir: Path, num_frames_target: Optional[int], verbose: bool = False
 ) -> Tuple[List[str], int]:
     """Converts a video into a sequence of images.
 
     Args:
         video_path: Path to the video.
-        output_dir: Path to the output directory.
-        num_frames_target: Number of frames to extract.
+        image_dir: Path to the output directory.
+        num_frames_target: Number of frames to extract. If None, will extract all frames.
         verbose: If True, logs the output of the command.
     Returns:
         A tuple containing summary of the conversion and the number of extracted frames.
@@ -128,12 +128,15 @@ def convert_video_to_images(
 
         out_filename = image_dir / "frame_%05d.png"
         ffmpeg_cmd = f'ffmpeg -i "{video_path}"'
+        if num_frames_target is None:
+            num_frames_target = num_frames
         spacing = num_frames // num_frames_target
 
         if spacing > 1:
             ffmpeg_cmd += f" -vf thumbnail={spacing},setpts=N/TB -r 1"
         else:
-            CONSOLE.print("[bold red]Can't satisfy requested number of frames. Extracting all frames.")
+            if num_frames_target != num_frames:
+                CONSOLE.print("[bold red]Can't satisfy requested number of frames. Extracting all frames.")
             ffmpeg_cmd += " -pix_fmt bgr8"
 
         ffmpeg_cmd += f" {out_filename}"

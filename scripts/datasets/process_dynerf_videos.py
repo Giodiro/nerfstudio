@@ -5,7 +5,8 @@ import re
 from collections import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Union
+from typing import Union, Optional
+from typing_extensions import Annotated
 
 import numpy as np
 import tyro
@@ -24,7 +25,7 @@ class ProcessVideo:
     """Path the data, either a video file or a directory of images."""
     output_dir: Path
     """Path to the output directory."""
-    num_frames_target: int = 300
+    num_frames_target: Optional[int] = None
     """Target number of frames to use for the dataset, results may not be exact."""
     num_downscales: int = 3
     """Number of times to downscale the images. Downscales by 2 each time. For example a value of 3
