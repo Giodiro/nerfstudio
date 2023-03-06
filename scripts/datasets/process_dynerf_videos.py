@@ -81,6 +81,8 @@ class ProcessVideo:
             # Original poses has rotation in form "down right back", change to "right up back"
             # See https://github.com/bmild/nerf/issues/34
             cam_pose = np.concatenate([cam_pose[:, 1:2], -cam_pose[:, :1], cam_pose[:, 2:4]], -1)
+            # convert to homogeneous coordinates
+            cam_pose = np.concatenate((cam_pose, np.array([[0, 0, 0, 1]])), 0)
             files: Iterator[os.DirEntry] = os.scandir(camera_image_dir)
             num_frames_in_cam = 0
             for f in files:  # Extracted images have file-name like frame_%05d.png

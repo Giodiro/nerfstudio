@@ -32,7 +32,7 @@ from nerfstudio.utils.io import load_from_json
 
 @dataclass
 class DyNeRFDataParserConfig(NerfstudioDataParserConfig):
-    """D-NeRF dataset parser config"""
+    """DyNeRF dataset parser config"""
 
     _target: Type = field(default_factory=lambda: DyNeRF)
     """target class to instantiate"""
@@ -46,6 +46,7 @@ class DyNeRF(Nerfstudio):
     config: DyNeRFDataParserConfig
 
     def _generate_dataparser_outputs(self, split="train"):
+        self.downscale_factor = self.config.downscale_factor or 1
         self.config.train_split_percentage = 1.0
         ns_outputs = super()._generate_dataparser_outputs("train")
 
@@ -91,11 +92,11 @@ class DyNeRF(Nerfstudio):
             fy=ns_outputs.cameras.fy[idx_tensor],
             cx=ns_outputs.cameras.cx[idx_tensor],
             cy=ns_outputs.cameras.cy[idx_tensor],
-            distortion_params=ns_outputs.cameras.distortion_params,  # TODO: Delete?
+            distortion_params=ns_outputs.cameras.distortion_params[idx_tensor],  # TODO: Delete?
             height=ns_outputs.cameras.height[idx_tensor],
             width=ns_outputs.cameras.width[idx_tensor],
-            camera_to_worlds=ns_outputs.cameras.camera_to_worlds,
-            camera_type=ns_outputs.cameras.camera_type,
+            camera_to_worlds=ns_outputs.cameras.camera_to_worlds[idx_tensor],
+            camera_type=ns_outputs.cameras.camera_type[idx_tensor],
             times=time[idx_tensor],
         )
         dataparser_outputs = DataparserOutputs(

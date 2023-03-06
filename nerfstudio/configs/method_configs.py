@@ -400,16 +400,21 @@ method_configs["kplanes"] = TrainerConfig(
     mixed_precision=True,
     pipeline=VanillaPipelineConfig(
         datamanager=VanillaDataManagerConfig(
-            dataparser=DyNeRFDataParserConfig(),
+            dataparser=DyNeRFDataParserConfig(
+                downscale_factor=4,
+            ),
             train_num_rays_per_batch=4096,
             eval_num_rays_per_batch=8192,
+            train_num_images_to_sample_from=500,
+            train_num_times_to_repeat_images=500,
         ),
         model=KPlanesModelConfig(
             eval_num_rays_per_chunk=8192,  # TODO: Not sure where this is used
+            collider_params={'near_plane': 0.1, 'far_plane': 100.0},
             time_resolution=150,
             space_resolution=(256, 256, 256),
             multiscale_multipliers=(1, 2),
-            spatial_distortion="none",
+            spatial_distortion="contraction",
             concat_features_across_scales=True,
             feature_dim=16,
             is_dynamic=True,
