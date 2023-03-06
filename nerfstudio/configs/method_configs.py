@@ -34,6 +34,7 @@ from nerfstudio.data.datamanagers.variable_res_datamanager import (
 from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConfig
 from nerfstudio.data.dataparsers.dnerf_dataparser import DNeRFDataParserConfig
 from nerfstudio.data.dataparsers.dycheck_dataparser import DycheckDataParserConfig
+from nerfstudio.data.dataparsers.dynerf_dataparser import DyNeRFDataParserConfig
 from nerfstudio.data.dataparsers.friends_dataparser import FriendsDataParserConfig
 from nerfstudio.data.dataparsers.instant_ngp_dataparser import (
     InstantNGPDataParserConfig,
@@ -398,18 +399,18 @@ method_configs["kplanes"] = TrainerConfig(
     mixed_precision=True,
     pipeline=VanillaPipelineConfig(
         datamanager=VanillaDataManagerConfig(
-            dataparser=DNeRFDataParserConfig(),
+            dataparser=DyNeRFDataParserConfig(),
             train_num_rays_per_batch=4096,
             eval_num_rays_per_batch=8192,
         ),
         model=KPlanesModelConfig(
             eval_num_rays_per_chunk=8192,  # TODO: Not sure where this is used
-            time_resolution=25,
+            time_resolution=150,
             space_resolution=(256, 256, 256),
             multiscale_multipliers=(1, 2),
             spatial_distortion="none",
             concat_features_across_scales=True,
-            feature_dim=32,
+            feature_dim=16,
             is_dynamic=True,
             num_nerf_samples_per_ray=48,
             num_proposal_samples_per_ray=(256, 96),
@@ -423,8 +424,8 @@ method_configs["kplanes"] = TrainerConfig(
             time_smoothness_propnets_mult=0.001,
             num_proposal_iterations=2,
             proposal_net_args_list=[
-                {"feature_dim": 8, "resolution": (128, 128, 128, 25)},
-                {"feature_dim": 8, "resolution": (256, 256, 256, 25)},
+                {"feature_dim": 8, "resolution": (128, 128, 128, 150)},
+                {"feature_dim": 8, "resolution": (256, 256, 256, 150)},
             ],
             use_linear_decoder=False,
         )
