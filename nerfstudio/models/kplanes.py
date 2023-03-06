@@ -61,7 +61,7 @@ class KPlanesModelConfig(ModelConfig):
 
     _target: Type = field(default_factory=lambda: KPlanesModel)
     """target class to instantiate"""
-    background_color: Literal["random", "last_sample", "black", "white"] = "black"
+    background_color: Literal["random", "last_sample", "black", "white"] = "white"
     """Whether to randomize the background color."""
     space_resolution: Sequence[int] = (256, 256, 256)
     """"""

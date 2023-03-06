@@ -340,13 +340,14 @@ method_configs["nerfplayer-nerfacto"] = TrainerConfig(
     max_num_iterations=30000,
     mixed_precision=True,
     pipeline=VanillaPipelineConfig(
-        datamanager=DepthDataManagerConfig(
-            dataparser=DycheckDataParserConfig(),
+        datamanager=VanillaDataManagerConfig(#DepthDataManagerConfig(
+            #dataparser=DycheckDataParserConfig(),
+            dataparser=DNeRFDataParserConfig(),
             train_num_rays_per_batch=4096,
             eval_num_rays_per_batch=4096,
-            camera_optimizer=CameraOptimizerConfig(
-                mode="SO3xR3", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
-            ),
+            #camera_optimizer=CameraOptimizerConfig(
+            #    mode="SO3xR3", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
+            #),
         ),
         model=NerfplayerNerfactoModelConfig(eval_num_rays_per_chunk=1 << 15),
     ),
@@ -361,7 +362,7 @@ method_configs["nerfplayer-nerfacto"] = TrainerConfig(
         },
     },
     viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-    vis="viewer",
+    vis="tensorboard",
 )
 
 method_configs["nerfplayer-ngp"] = TrainerConfig(

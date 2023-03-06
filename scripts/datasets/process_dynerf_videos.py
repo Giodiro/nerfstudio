@@ -3,10 +3,9 @@
 import json
 import os
 import re
-from collections import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Union, Optional
+from typing import Union, Optional, Iterator
 from typing_extensions import Annotated
 
 import numpy as np
@@ -40,15 +39,16 @@ class ProcessVideo:
         install_checks.check_ffmpeg_installed()
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        image_dir = self.output_dir
+        image_dir = self.output_dir / "images"
 
         poses_bounds = np.load(str(self.data / 'poses_bounds.npy'))  # (n_cameras, 17)
         num_cameras = poses_bounds.shape[0]
 
-        videopaths = np.array(self.data.glob("*.mp4"))
+        videopaths = np.array(list(self.data.glob("*.mp4")))
         videopaths.sort()
         assert len(videopaths) == num_cameras, \
             'Mismatch between number of cameras and number of poses!'
+        CONSOLE.log(f"[green] Starting preprocessing of videos from {num_cameras} cameras.")
 
         frames = []
         summary_log = []
@@ -62,8 +62,16 @@ class ProcessVideo:
                 )
                 summary_log.append(
                     process_data_utils.downscale_images(
-                        camera_image_dir, self.num_downscales, verbose=self.verbose)
-                )
+                        camera_image_dir, self.num_downscales, verbose=self.verbose,
+                        folder_name=f"camera_{cam_id}",
+                ))
+                # Move downsampled images from data/images/camera_0_2/*.png to data/images_2/camera_0/
+                downsample_factors = [2 ** i for i in range(1, self.num_downscales + 1)]
+                for downsample_factor in downsample_factors:
+                    downsample_path = image_dir / f"camera_{cam_id}_{downsample_factor}"
+                    new_downsample_path = self.output_dir / f"images_{downsample_factor}" / f"camera_{cam_id}"
+                    new_downsample_path.mkdir(parents=True, exist_ok=True)
+                    downsample_path.replace(new_downsample_path)
 
             # Convert poses_bounds.npy to transforms.json
             cam_pose = poses_bounds[cam_id, :15].reshape(3, 5)
@@ -85,7 +93,7 @@ class ProcessVideo:
                     "time": int(re.match(r"frame_([0-9]+)\.png", f.name).group(1))
                 })
                 num_frames_in_cam += 1
-            CONSOLE.log(f"[green]Extracted {num_frames_in_cam} from camera {cam_id}")
+            CONSOLE.log(f"[green]Extracted {num_frames_in_cam} images from camera {cam_id}")
             for summary in summary_log:
                 CONSOLE.print(summary, justify="center")
             CONSOLE.rule()
