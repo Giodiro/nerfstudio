@@ -82,7 +82,7 @@ descriptions = {
     "nerfplayer-nerfacto": "NeRFPlayer with nerfacto backbone.",
     "nerfplayer-ngp": "NeRFPlayer with InstantNGP backbone.",
     "neus": "Implementation of NeuS. (slow)",
-    "k-planes": "test",
+    "k-planes": "K-Planes model.",
 }
 
 method_configs["nerfacto"] = TrainerConfig(
@@ -487,7 +487,17 @@ method_configs["k-planes"] = TrainerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
             ),
         ),
-        model=KPlanesModelConfig(eval_num_rays_per_chunk=1 << 15),
+        model=KPlanesModelConfig(
+            eval_num_rays_per_chunk=4096,
+            spacetime_resolution=(256, 256, 256),
+            feature_dim=16,
+            multiscale_res=(1, 2),
+            concat_features_across_scales=True,
+            proposal_net_args_list=[
+                {"feature_dim": 8, "resolution": (128, 128, 128)},
+                {"feature_dim": 8, "resolution": (256, 256, 256)},
+            ]
+        ),
     ),
     optimizers={
         "fields": {
