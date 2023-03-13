@@ -34,80 +34,6 @@ from nerfstudio.fields.base_field import Field
 from nerfstudio.utils.interpolation import grid_sample_wrapper
 
 
-def get_normalized_directions(directions: TensorType["bs":..., 3]):
-    """SH encoding must be in the range [0, 1]
-
-    Args:
-        directions: batch of directions
-    """
-    return (directions + 1.0) / 2.0
-
-
-def init_kplanes_field(out_dim: int, reso: Sequence[int], a: float = 0.1, b: float = 0.5) -> nn.ParameterList:
-    """Initialize feature planes at a single scale.
-
-    This functions creates k-choose-2 planes, where k is the number of input coordinates (4 for
-    video, 3 for static scenes). k is inferred from the length of the `resolution` sequence.
-
-    Args:
-        out_dim: feature size at every point of the planes
-        reso: the resolution of the planes, must be of length 3 or 4
-        a: the spatial planes are initialized uniformly at random between `a` and `b`
-        b: the spatial planes are initialized uniformly at random between `a` and `b`
-    """
-    in_dim = len(reso)
-    has_time_planes = in_dim == 4
-    coo_combs = list(itertools.combinations(range(in_dim), 2))
-    grid_coefs = nn.ParameterList()
-    for ci, coo_comb in enumerate(coo_combs):
-        new_grid_coef = nn.Parameter(torch.empty(
-            [1, out_dim] + [reso[cc] for cc in coo_comb[::-1]]
-        ))
-        if has_time_planes and 3 in coo_comb:  # Initialize time planes to 1
-            nn.init.ones_(new_grid_coef)
-        else:  # Initialize spatial planes as uniform[a, b]
-            nn.init.uniform_(new_grid_coef, a=a, b=b)
-        grid_coefs.append(new_grid_coef)
-
-    return grid_coefs
-
-
-def interpolate_kplanes(
-    pts: torch.Tensor,
-    ms_grids: Collection[Iterable[nn.Module]],
-    concat_features: bool,
-) -> torch.Tensor:
-    """K-Planes: query multi-scale planes at given points
-
-    Args:
-        pts: 3D or 4D points at which the planes are queries
-        ms_grids: Multi-scale k-plane grids
-        concat_features: If true, the features from each scale are concatenated.
-            Otherwise they are summed together.
-    """
-    coo_combs = list(itertools.combinations(range(pts.shape[-1]), 2))
-    multi_scale_interp = [] if concat_features else 0.0
-    grid: nn.ParameterList
-    for scale_id, grid in enumerate(ms_grids):  # type: ignore
-        interp_space = 1.0
-        for ci, coo_comb in enumerate(coo_combs):
-            # interpolate in plane
-            feature_dim = grid[ci].shape[1]  # shape of grid[ci]: 1, out_dim, *reso
-            interp_out_plane = grid_sample_wrapper(grid[ci], pts[..., coo_comb]).view(-1, feature_dim)
-            # compute product over planes
-            interp_space = interp_space * interp_out_plane
-
-        # combine over scales
-        if concat_features:
-            multi_scale_interp.append(interp_space)  # type: ignore
-        else:
-            multi_scale_interp = multi_scale_interp + interp_space  # type: ignore
-
-    if concat_features:
-        multi_scale_interp = torch.cat(multi_scale_interp, dim=-1)  # type: ignore
-    return multi_scale_interp  # type: ignore
-
-
 class KPlanesField(Field):
     """KPlanes Field
 
@@ -251,11 +177,12 @@ class KPlanesField(Field):
             positions = self.spatial_distortion(positions)
             positions = (positions + 2.0) / 4.0  # from [-2, 2] to [-1, 1]
         else:
-            positions = SceneBox.get_normalized_positions(positions, self.aabb)
+            positions = SceneBox.get_normalized_positions(positions, self.aabb) * 2.0 - 1.0
         n_rays, n_samples = positions.shape[:2]
 
         timestamps = ray_samples.times
-        if self.has_time_planes and timestamps is not None:
+        if self.has_time_planes:
+            assert timestamps is not None, "Initialized model with time-planes, but no time data is given"
             # Normalize timestamps from [0, 1] to [-1, 1]
             timestamps = (timestamps * 2) - 1
             positions = torch.cat((positions, timestamps), dim=-1)  # [n_rays, n_samples, 4]
@@ -276,7 +203,9 @@ class KPlanesField(Field):
             features = self.sigma_net(features)
             features, density_before_activation = torch.split(features, [self.geo_feat_dim, 1], dim=-1)
 
-        density = trunc_exp(density_before_activation.to(positions)).view(n_rays, n_samples, 1)  # type: ignore
+        density = trunc_exp(
+            density_before_activation.to(positions) - 1
+        ).view(n_rays, n_samples, 1)
         return density, features
 
     def get_outputs(self, ray_samples: RaySamples, density_embedding: Optional[TensorType] = None) -> TensorType:
@@ -378,9 +307,9 @@ class KPlanesDensityField(Field):
         positions = ray_samples.frustums.get_positions()
         if self.spatial_distortion is not None:
             positions = self.spatial_distortion(positions)
-            positions = (positions + 2.0) / 4.0
+            positions = (positions + 2.0) / 4.0  # from [-2, 2] to [-1, 1]
         else:
-            positions = SceneBox.get_normalized_positions(positions, self.aabb)
+            positions = SceneBox.get_normalized_positions(positions, self.aabb) * 2.0 - 1.0
 
         n_rays, n_samples = positions.shape[:2]
 
@@ -396,9 +325,83 @@ class KPlanesDensityField(Field):
             positions, ms_grids=[self.grids], concat_features=False,
         )
         density = trunc_exp(
-            self.sigma_net(features).to(positions)
+            self.sigma_net(features).to(positions) - 1
         ).view(n_rays, n_samples, 1)
         return density, features
 
     def get_outputs(self, ray_samples: RaySamples, density_embedding: Optional[TensorType] = None):
         return {}
+
+
+def get_normalized_directions(directions: TensorType["bs":..., 3]):
+    """SH encoding must be in the range [0, 1]
+
+    Args:
+        directions: batch of directions
+    """
+    return (directions + 1.0) / 2.0
+
+
+def init_kplanes_field(out_dim: int, reso: Sequence[int], a: float = 0.1, b: float = 0.5) -> nn.ParameterList:
+    """Initialize feature planes at a single scale.
+
+    This functions creates k-choose-2 planes, where k is the number of input coordinates (4 for
+    video, 3 for static scenes). k is inferred from the length of the `resolution` sequence.
+
+    Args:
+        out_dim: feature size at every point of the planes
+        reso: the resolution of the planes, must be of length 3 or 4
+        a: the spatial planes are initialized uniformly at random between `a` and `b`
+        b: the spatial planes are initialized uniformly at random between `a` and `b`
+    """
+    in_dim = len(reso)
+    has_time_planes = in_dim == 4
+    coo_combs = list(itertools.combinations(range(in_dim), 2))
+    grid_coefs = nn.ParameterList()
+    for ci, coo_comb in enumerate(coo_combs):
+        new_grid_coef = nn.Parameter(torch.empty(
+            [1, out_dim] + [reso[cc] for cc in coo_comb[::-1]]
+        ))
+        if has_time_planes and 3 in coo_comb:  # Initialize time planes to 1
+            nn.init.ones_(new_grid_coef)
+        else:  # Initialize spatial planes as uniform[a, b]
+            nn.init.uniform_(new_grid_coef, a=a, b=b)
+        grid_coefs.append(new_grid_coef)
+
+    return grid_coefs
+
+
+def interpolate_kplanes(
+    pts: torch.Tensor,
+    ms_grids: Collection[Iterable[nn.Module]],
+    concat_features: bool,
+) -> torch.Tensor:
+    """K-Planes: query multi-scale planes at given points
+
+    Args:
+        pts: 3D or 4D points at which the planes are queries
+        ms_grids: Multi-scale k-plane grids
+        concat_features: If true, the features from each scale are concatenated.
+            Otherwise they are summed together.
+    """
+    coo_combs = list(itertools.combinations(range(pts.shape[-1]), 2))
+    multi_scale_interp = [] if concat_features else 0.0
+    grid: nn.ParameterList
+    for scale_id, grid in enumerate(ms_grids):  # type: ignore
+        interp_space = 1.0
+        for ci, coo_comb in enumerate(coo_combs):
+            # interpolate in plane
+            feature_dim = grid[ci].shape[1]  # shape of grid[ci]: 1, out_dim, *reso
+            interp_out_plane = grid_sample_wrapper(grid[ci], pts[..., coo_comb]).view(-1, feature_dim)
+            # compute product over planes
+            interp_space = interp_space * interp_out_plane
+
+        # combine over scales
+        if concat_features:
+            multi_scale_interp.append(interp_space)  # type: ignore
+        else:
+            multi_scale_interp = multi_scale_interp + interp_space  # type: ignore
+
+    if concat_features:
+        multi_scale_interp = torch.cat(multi_scale_interp, dim=-1)  # type: ignore
+    return multi_scale_interp  # type: ignore
