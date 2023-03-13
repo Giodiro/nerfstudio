@@ -228,6 +228,8 @@ class KPlanesModel(Model):
         self.ssim = structural_similarity_index_measure
         self.lpips = LearnedPerceptualImagePatchSimilarity()
 
+        self.temporal_distortion = True  # for viewer
+
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         param_groups = {
             "proposal_networks": list(self.proposal_networks.parameters()),
@@ -286,6 +288,7 @@ class KPlanesModel(Model):
             "depth": depth,
         }
 
+        # These use a lot of GPU memory, so we avoid storing them for eval.
         if self.training:
             outputs["weights_list"] = weights_list
             outputs["ray_samples_list"] = ray_samples_list
