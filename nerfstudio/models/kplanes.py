@@ -38,16 +38,19 @@ from nerfstudio.engine.callbacks import (
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.kplanes_field import KPlanesField, KPlanesDensityField
-from nerfstudio.model_components.losses import MSELoss, distortion_loss, interlevel_loss
+from nerfstudio.model_components.losses import (
+    MSELoss, distortion_loss, interlevel_loss,
+    plane_tv_loss, time_plane_l1_loss, time_smoothness_loss
+)
 from nerfstudio.model_components.ray_samplers import ProposalNetworkSampler
 from nerfstudio.model_components.renderers import (
     AccumulationRenderer,
     DepthRenderer,
     RGBRenderer,
 )
-from nerfstudio.model_components.scene_colliders import NearFarCollider
+from nerfstudio.model_components.scene_colliders import NearFarCollider, AABBBoxCollider
 from nerfstudio.models.base_model import Model, ModelConfig
-from nerfstudio.utils import colormaps, colors, misc
+from nerfstudio.utils import colormaps, misc
 
 
 @dataclass
@@ -60,6 +63,8 @@ class KPlanesModelConfig(ModelConfig):
     """How far along the ray to start sampling."""
     far_plane: float = 1000.0
     """How far along the ray to stop sampling."""
+    collider_type: Literal["nearfar", "aabb", "off"] = "nearfar"
+    """"""
     spacetime_resolution: Sequence[int] = (256, 256, 256, 150)
     """Desired resolution of the scene at the base scale. Should include 3 or 4 elements depending
        on whether the scene is static or dynamic.
@@ -71,6 +76,8 @@ class KPlanesModelConfig(ModelConfig):
         E.g. if equals to (2, 4) and spacetime_resolution is (128, 128, 128, 50), then
         2 k-plane models will be created at resolutions (256, 256, 256, 50) and (512, 512, 512, 50).
     """
+    use_scene_contraction: bool = True
+    """Whether to use L-infinity scene contraction from mip-NeRF 360."""
     concat_features_across_scales: bool = True
     """Whether to concatenate or sum together the interpolated features at different scales"""
     linear_decoder: bool = False
@@ -118,6 +125,12 @@ class KPlanesModelConfig(ModelConfig):
         "rgb_loss": 1.0,
         "interlevel_loss": 1.0,
         "distortion_loss": 0.001,
+        "plane_tv_loss": 0.0,
+        "plane_tv_propnets_loss": 0.0,
+        "timeplane_l1_loss": 0.0,
+        "timeplane_l1_propnets_loss": 0.0,
+        "time_smoothness_loss": 0.0,
+        "time_smoothness_propnets_loss": 0.0,
     })
     """Loss specific weights."""
 
@@ -135,7 +148,9 @@ class KPlanesModel(Model):
         super().populate_modules()
 
         linear_decoder = self.config.linear_decoder
-        scene_contraction = SceneContraction(order=float("inf"))
+        scene_contraction = None
+        if self.config.use_scene_contraction:
+            scene_contraction = SceneContraction(order=float("inf"))
 
         self.field = KPlanesField(
             self.scene_box.aabb,
@@ -190,7 +205,15 @@ class KPlanesModel(Model):
         )
 
         # Collider
-        self.collider = NearFarCollider(near_plane=self.config.near_plane, far_plane=self.config.far_plane)
+        if self.config.collider_type == "nearfar":
+            self.collider = NearFarCollider(near_plane=self.config.near_plane, far_plane=self.config.far_plane)
+        elif self.config.collider_type == "aabb":
+            self.collider = AABBBoxCollider(scene_box=self.scene_box)
+        elif self.config.collider_type == "off":
+            self.collider = None
+        else:
+            raise ValueError(f"collider_type parameter is {self.config.collider_type} but "
+                             f"only 'nearfar', 'aabb', 'off' are supported.")
 
         # renderers
         self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
@@ -254,8 +277,8 @@ class KPlanesModel(Model):
         ray_samples_list.append(ray_samples)
 
         rgb = self.renderer_rgb(rgb=field_out[FieldHeadNames.RGB], weights=weights)
-        accumulation = self.renderer_accumulation(weights)
         depth = self.renderer_depth(weights, ray_samples)
+        accumulation = self.renderer_accumulation(weights)
 
         outputs = {
             "rgb": rgb,
@@ -285,18 +308,33 @@ class KPlanesModel(Model):
         image = batch["image"].to(device)
 
         rgb_loss = self.rgb_loss(image, outputs["rgb"])
-        loss_dict = {"rgb_loss": rgb_loss}
+        loss_dict = {
+            "rgb_loss": rgb_loss,
+        }
         loss_coef = self.config.loss_coefficients
 
         if self.training:
+            f_grids = self.field.grids
+            p_grids = [p.grids for p in self.proposal_networks]
+            loss_dict["interlevel_loss"] = interlevel_loss(  # Needed even if coef is not there
+                outputs["weights_list"], outputs["ray_samples_list"]
+            )
             if "distortion_loss" in loss_coef:
                 loss_dict["distortion_loss"] = distortion_loss(
                     outputs["weights_list"], outputs["ray_samples_list"]
                 )
-            if "interlevel_loss" in loss_coef:
-                loss_dict["interlevel_loss"] = interlevel_loss(
-                    outputs["weights_list"], outputs["ray_samples_list"]
-                )
+            if "plane_tv_loss" in loss_coef:
+                loss_dict["plane_tv_loss"] = plane_tv_loss(f_grids)
+            if "plane_tv_propnets_loss" in loss_coef:
+                loss_dict["plane_tv_propnets_loss"] = plane_tv_loss(p_grids)
+            if "timeplane_l1_loss" in loss_coef:
+                loss_dict["timeplane_l1_loss"] = time_plane_l1_loss(f_grids)
+            if "timeplane_l1_propnets_loss" in loss_coef:
+                loss_dict["timeplane_l1_propnets_loss"] = time_plane_l1_loss(p_grids)
+            if "time_smoothness_loss" in loss_coef:
+                loss_dict["time_smoothness_loss"] = time_smoothness_loss(f_grids)
+            if "time_smoothness_propnets_loss" in loss_coef:
+                loss_dict["time_smoothness_propnets_loss"] = time_smoothness_loss(p_grids)
 
         loss_dict = misc.scale_dict(loss_dict, loss_coef)
         return loss_dict
@@ -306,28 +344,33 @@ class KPlanesModel(Model):
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         image = batch["image"].to(outputs["rgb"].device)
         rgb = outputs["rgb"]
-        acc = colormaps.apply_colormap(outputs["accumulation"])
+        acc = colormaps.apply_colormap(outputs["accumulation"].clamp_(min=0.0, max=255.0))
         depth = colormaps.apply_depth_colormap(
             outputs["depth"],
             accumulation=outputs["accumulation"],
-            near_plane=self.config.collider_params["near_plane"],
-            far_plane=self.config.collider_params["far_plane"],
         )
 
         combined_rgb = torch.cat([image, rgb], dim=1)
+        combined_acc = torch.cat([acc], dim=1)
+        combined_depth = torch.cat([depth], dim=1)
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
         image = torch.moveaxis(image, -1, 0)[None, ...]
         rgb = torch.moveaxis(rgb, -1, 0)[None, ...]
 
-        psnr = self.psnr(image, rgb)
-        ssim = self.ssim(image, rgb)
-        lpips = self.lpips(image, rgb)
-
         metrics_dict = {
-            "psnr": float(psnr.item()),
-            "ssim": float(ssim.item()),
-            "lpips": float(lpips.item()),
+            "psnr": float(self.psnr(image, rgb).item()),
+            "ssim": float(self.ssim(image, rgb).item()),
+            "lpips": float(self.lpips(image, rgb).item()),
         }
-        images_dict = {"img": combined_rgb, "accumulation": acc, "depth": depth}
+        images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
+
+        for i in range(self.config.num_proposal_iterations):
+            key = f"prop_depth_{i}"
+            prop_depth_i = colormaps.apply_depth_colormap(
+                outputs[key],
+                accumulation=outputs["accumulation"],
+            )
+            images_dict[key] = prop_depth_i
+
         return metrics_dict, images_dict
