@@ -64,7 +64,7 @@ class KPlanesModelConfig(ModelConfig):
     far_plane: float = 1000.0
     """How far along the ray to stop sampling."""
     collider_type: Literal["nearfar", "aabb", "off"] = "nearfar"
-    """"""
+    """Which method to use to prune rays"""
     spacetime_resolution: Sequence[int] = (256, 256, 256, 150)
     """Desired resolution of the scene at the base scale. Should include 3 or 4 elements depending
        on whether the scene is static or dynamic.
