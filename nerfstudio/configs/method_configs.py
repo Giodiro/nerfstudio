@@ -82,7 +82,7 @@ descriptions = {
     "nerfplayer-nerfacto": "NeRFPlayer with nerfacto backbone.",
     "nerfplayer-ngp": "NeRFPlayer with InstantNGP backbone.",
     "neus": "Implementation of NeuS. (slow)",
-    "k-planes": "K-Planes model.",
+    "k-planes": "K-Planes model. Handles static and dynamic scenes.",
 }
 
 method_configs["nerfacto"] = TrainerConfig(
@@ -474,39 +474,45 @@ method_configs["neus"] = TrainerConfig(
 
 method_configs["k-planes"] = TrainerConfig(
     method_name="k-planes",
-    steps_per_eval_batch=500,
     steps_per_save=2000,
     max_num_iterations=30000,
     mixed_precision=True,
     pipeline=VanillaPipelineConfig(
         datamanager=VanillaDataManagerConfig(
-            dataparser=NerfstudioDataParserConfig(),
+            dataparser=DycheckDataParserConfig(),
             train_num_rays_per_batch=4096,
             eval_num_rays_per_batch=4096,
-            camera_optimizer=CameraOptimizerConfig(
-                mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
-            ),
         ),
         model=KPlanesModelConfig(
-            eval_num_rays_per_chunk=4096,
-            spacetime_resolution=(256, 256, 256),
+            spacetime_resolution=(64, 64, 64, 90),
             feature_dim=16,
-            multiscale_res=(1, 2),
-            concat_features_across_scales=True,
+            multiscale_res=(4, 8),
+            use_scene_contraction=False,
+            collider_type="nearfar",
             proposal_net_args_list=[
-                {"feature_dim": 8, "resolution": (128, 128, 128)},
-                {"feature_dim": 8, "resolution": (256, 256, 256)},
-            ]
+                {"feature_dim": 8, "resolution": (128, 128, 128, 90)},
+                {"feature_dim": 8, "resolution": (256, 256, 256, 90)},
+            ],
+            loss_coefficients={
+                "plane_tv_loss": 1e-4,
+                "plane_tv_propnets_loss": 1e-4,
+                "interlevel_loss": 1.0,
+                "distortion_loss": 1e-4,
+                "timeplane_l1_loss": 1e-4,
+                "timeplane_l1_propnets_loss": 1e-4,
+                "time_smoothness_loss": 1e-2,
+                "time_smoothness_propnets_loss": 1e-3,
+            },
         ),
     ),
     optimizers={
-        "fields": {
-            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-            "scheduler": None,
-        },
         "proposal_networks": {
             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-            "scheduler": None,
+            "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, max_steps=30000),
+        },
+        "fields": {
+            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+            "scheduler": CosineDecaySchedulerConfig(warm_up_end=500, max_steps=30000),
         },
     },
     viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
